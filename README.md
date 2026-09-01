@@ -30,9 +30,9 @@ browser ──► console (Node, :3200) ──► api (Node, :3100) ──► po
 ```
 
 **Why the console proxies rather than the API enabling CORS.** The browser sees
-one origin, so there is no preflight, no `Access-Control-Allow-*` anywhere in the
-codebase, and no second origin for a token to leak to. The proxy forwards the
-`Authorization` header untouched and adds no authority of its own.
+one origin: no preflight, no `Access-Control-Allow-*` anywhere, no second origin
+for a token to leak to. The proxy forwards `Authorization` untouched and adds no
+authority of its own.
 
 **Layers.** `server.js` is the composition root: a route table of
 `[method, pattern, capability, handler]`. Authentication and authorisation both
@@ -84,7 +84,8 @@ a real journal only if warehouses map to separate inventory accounts.
 Requires Docker and Docker Compose. Nothing else — no Node, no `psql`.
 
 ```bash
-git clone <repo> && cd mini-erp
+git clone https://github.com/NodeNavigator/northwind-mini-erp
+cd northwind-mini-erp
 docker compose up --build
 ```
 
@@ -185,8 +186,8 @@ verification against a database that could have offered a verifiable chain.
 migrate → listen → seed. Seeding runs *after* `listen`, because the platform
 health-checks the port and kills a container that binds too slowly — demo data is
 not worth failing a deploy over, so a seed failure is logged and the service
-stays up. Compose overrides this back to `node src/server.js`, so the sequence
-lives in exactly one place per environment.
+stays up. Compose overrides this back to `node backend/src/server.js`, so the
+sequence lives in exactly one place per environment.
 
 **5. A URL returning 200 is not evidence the deployed code is the repo's.** A
 failed build leaves the previous image serving, so the service looks healthy
@@ -205,18 +206,32 @@ commits behind, and every external check passed throughout.
 One mechanism, in `db.js`:
 
 ```js
-export async function lockPosition(c, skuId, whId) {
-  const r = await c.query('SELECT 1 FROM stock_positions WHERE sku_id=$1 AND warehouse_id=$2 FOR UPDATE', [skuId, whId]);
-  if (r.rowCount === 0) throw httpError(404, 'NO_SUCH_STOCK_POSITION');
-  const a = await c.query('SELECT available FROM available_stock WHERE sku_id=$1 AND warehouse_id=$2', [skuId, whId]);
+// ACQUIRE - every position a transaction touches, in one canonical order.
+export async function lockPositions(c, keys) {
+  const sorted = [...keys].sort((a, b) => a.skuId - b.skuId || a.whId - b.whId);
+  for (const k of sorted) {
+    const r = await c.query(
+      'SELECT 1 FROM stock_positions WHERE sku_id=$1 AND warehouse_id=$2 FOR UPDATE', [k.skuId, k.whId]);
+    if (r.rowCount === 0) throw httpError(404, 'NO_SUCH_STOCK_POSITION', k);
+  }
+}
+
+// MEASURE - separate, and only legal once the lock is held.
+export async function readAvailable(c, skuId, whId) {
+  const a = await c.query(
+    'SELECT available FROM available_stock WHERE sku_id=$1 AND warehouse_id=$2', [skuId, whId]);
+  if (a.rowCount === 0) throw httpError(404, 'NO_SUCH_STOCK_POSITION', { skuId, whId });
   return Number(a.rows[0].available);
 }
 ```
 
-`stock_positions` holds no quantity. Its only job is to be one row per
-(SKU, warehouse) that transactions can serialise on, which is why reserving,
-fulfilling and transferring all take the same lock and therefore contend with
-each other rather than only with themselves.
+Acquiring and measuring are two calls because they are two decisions. Callers
+lock everything up front, then measure per line — a sales order with two lines on
+one position must see the first line's reservation when it measures the second.
+
+`stock_positions` holds no quantity. Its only job is one row per (SKU, warehouse)
+to serialise on — which is why reserving, fulfilling and transferring contend with
+each other, not merely with themselves.
 
 **The ordering is the whole mechanism, and it is the part that was wrong.** An
 earlier version read `available_stock` first and *then* took `FOR UPDATE`. The
@@ -228,10 +243,10 @@ reservations against three units gave **10 successes and `available = -7.0000`**
 With the lock taken first, the same test gives **3 successes and
 `available = 0.0000`**.
 
-`SERIALIZABLE` would also prevent it, by aborting transactions rather than
-ordering them — a retry storm on a hot SKU under contention — and would leave the
-actual defect, a decision made on data read outside the section protecting it,
-sitting in the code for whoever next lowers the isolation level.
+`SERIALIZABLE` would also prevent it, by aborting rather than ordering — a retry
+storm on a hot SKU — and would leave the actual defect, a decision made on data
+read outside the section protecting it, for whoever next lowers the isolation
+level.
 
 **Deadlock.** `transfers.js` touches two positions, so simultaneous A→B and B→A
 could each hold what the other needs. Both anchors are locked in ascending
@@ -242,11 +257,11 @@ impossible rather than unlikely.
 
 ## 5. Ledger consistency
 
-**Every stock movement that has financial meaning posts a balanced journal in the
-same transaction that writes the movement.** Not afterwards, not in a queue. A
-receipt debits inventory and credits GRNI; a fulfilment moves value to COGS; a
-price difference goes to PPV. Because both writes are in one transaction, there
-is no window in which stock exists that the ledger has not accounted for.
+**Every financially meaningful movement posts a balanced journal in the same
+transaction that writes the movement.** Not afterwards, not in a queue. A receipt
+debits inventory and credits GRNI; a fulfilment moves value to COGS; a price
+difference goes to PPV. One transaction, so there is no window in which stock
+exists that the ledger has not accounted for.
 
 Three things keep it true rather than intended:
 
@@ -280,17 +295,16 @@ the endpoints cannot desynchronise them, and its last assertion is drift = 0.
 **What breaks first: reserve throughput on a hot SKU — and it degrades with the
 SKU's age, not with traffic.**
 
-`lockPosition()` takes `FOR UPDATE` and *then* recomputes availability from that
-position's entire movement history, while still holding the lock. Cost is linear
+Availability is recomputed from that position's entire movement history *while
+the `FOR UPDATE` lock is held*. Cost is linear
 in history depth and is paid inside the critical section, so every concurrent
 reservation for that SKU queues behind an increasingly expensive read. A SKU that
 has traded for two years is slow even at 3am.
 
-I assumed the problem was that `available_stock` aggregates the whole
-`stock_movements` table on every read. **`EXPLAIN` said otherwise** — Postgres
-pushes the `(sku_id, warehouse_id)` predicate into the aggregate subquery, so a
-busy warehouse does not slow an unrelated SKU. The real exposure is narrower and
-worse than the guess.
+I assumed `available_stock` aggregates the whole `stock_movements` table on every
+read. **`EXPLAIN` said otherwise** — Postgres pushes the `(sku_id, warehouse_id)`
+predicate into the aggregate subquery, so a busy warehouse does not slow an
+unrelated SKU. The real exposure is narrower and worse than the guess.
 
 `ops/loadtest.mjs` varies exactly one thing — history depth for one position —
 holding concurrency (40), seeding and code constant. Measured, on Postgres 16.15:
@@ -335,33 +349,28 @@ concurrent load: `balance_drift` **0 rows**, `cached = recomputed = 396.0000`.
 There is no `UPDATE`/`DELETE` branch in the trigger because the immutability
 triggers already make those impossible.
 
-**What it costs, honestly.** The rollup `UPDATE` takes a row lock, so concurrent
-movements for the same position now serialise on it as well as on the anchor row.
-For reservations that is free — they already hold the anchor lock — but two
-unrelated receipts into the same position that previously proceeded in parallel
-now queue. At the volumes measured this is invisible; it is a real trade of write
-parallelism for read cost, not a free win.
+**What it costs.** The rollup `UPDATE` takes a row lock, so movements into one
+position now serialise on it as well as on the anchor row. Free for reservations,
+which already hold the anchor lock; two unrelated receipts into the same position
+that previously ran in parallel now queue. Invisible at the volumes measured, but
+a real trade of write parallelism for read cost.
 
-**What breaks second**, unmeasured and therefore stated as reasoning rather than
-result: the single anchor row per (SKU, warehouse) caps a hot position at one
-reservation at a time. Beyond that the fix is not another index but splitting the
-position into N lock stripes and summing them, which trades exact availability
+**What breaks second**, reasoned rather than measured: the single anchor row per
+(SKU, warehouse) caps a hot position at one reservation at a time. The fix there
+is not another index but N lock stripes summed on read, trading exact availability
 for throughput — a product decision, not a technical one.
 
 ---
 
 ## 7. Known limitations and scope cuts
 
-Two items that were on this list are gone, because writing them down was cheaper
-than fixing them and that is the wrong trade. **Deadlock freedom was an
-argument**; `test/deadlock.mjs` now runs the two-way race with request-order
-locking, asserts Postgres reports `40P01`, then shows canonical order completing
-both. And **`lockPosition` conflated acquiring the lock with measuring
-availability**, forcing `transfers.js` to choose between two returned numbers —
-now `lockPositions()` and `readAvailable()`. That fixed something worse than the
-awkwardness: the lock *ordering* had been implemented three times (a JS sort in
-`reserve`, a SQL `ORDER BY` in `fulfil`, a ternary in `transfer`), so a fourth
-caller had to know the rule existed. There is one implementation now.
+Two items left this list because writing them down was cheaper than fixing them,
+and that is the wrong trade. **Deadlock freedom was an argument**;
+`backend/test/deadlock.mjs` now runs the two-way race under request-order locking,
+asserts `40P01`, then shows canonical order completing both. And **`lockPosition`
+conflated acquiring with measuring**, which hid something worse: the lock ordering
+had three implementations (a JS sort in `reserve`, a SQL `ORDER BY` in `fulfil`, a
+ternary in `transfer`), so a fourth caller had to know the rule existed. One now.
 
 What remains:
 
