@@ -41,7 +41,7 @@ services:
     # Overrides the image default (ops/boot.mjs) deliberately. boot.mjs sequences
     # migrate -> listen -> seed where there is no orchestrator; here compose IS
     # one, and doing it in both places would be two mechanisms for one job.
-    command: ['node', 'src/server.js']
+    command: ['node', 'backend/src/server.js']
     environment:
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-erp}@db:5432/erp
       PORT: 3100

@@ -21,12 +21,12 @@ import { readdirSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { server } from '../src/server.js';
 import { pool, tx, lockPositions } from '../src/db.js';
+import { dsn, numEnv } from '../src/config.js';
+const DSN = dsn();
 
-const DSN = process.env.DATABASE_URL
-  ?? `postgres://postgres:${process.env.POSTGRES_PASSWORD ?? 'erp'}`
-   + `@localhost:${process.env.DB_PORT ?? 55432}/erp`;
+
 const SCHEMA_DIR = new URL('../../db/', import.meta.url).pathname;
-const PORT = Number(process.env.PORT ?? 3402);
+const PORT = numEnv('PORT', 3402);
 
 let pass = 0, fail = 0;
 const check = (n, fn) => {

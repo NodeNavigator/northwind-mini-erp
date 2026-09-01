@@ -1,16 +1,11 @@
 import pg from 'pg';
+import { dsn, sslFor, numEnv } from './config.js';
 
-// Managed Postgres (Render, Neon, Supabase) terminates TLS with a certificate
-// this container has no CA for, so verification must be relaxed for those hosts
-// and ONLY those. Defaulting `ssl` on everywhere would silently disable
-// verification against a database that could have offered a verifiable chain.
-const dsn = process.env.DATABASE_URL ?? 'postgres://postgres:erp@localhost:55432/erp';
-const needsSsl = process.env.PGSSL === 'require' || /sslmode=require/.test(dsn);
-
+const url = dsn();
 export const pool = new pg.Pool({
-  connectionString: dsn,
-  max: Number(process.env.PG_POOL ?? 20),
-  ...(needsSsl ? { ssl: { rejectUnauthorized: false } } : {}),
+  connectionString: url,
+  max: numEnv('PG_POOL', 20),
+  ...sslFor(url),
 });
 pool.on('connect', (c) => c.query('SET search_path = erp, public'));
 

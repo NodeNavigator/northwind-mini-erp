@@ -6,19 +6,16 @@ import { readdirSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { server } from '../src/server.js';
 import { pool } from '../src/db.js';
+import { dsn, numEnv } from '../src/config.js';
+const DSN = dsn();
 
-// No credential is fixed in source. DATABASE_URL wins; otherwise the parts come
-// from the same env vars docker-compose.yml uses, so local defaults and deployed
-// config are the same mechanism rather than two that can drift apart.
-const DSN = process.env.DATABASE_URL
-  ?? `postgres://postgres:${process.env.POSTGRES_PASSWORD ?? 'erp'}`
-   + `@localhost:${process.env.DB_PORT ?? 55432}/erp`;
+
 // The suites apply the same migration set the deployed system does; testing a
 // schema the server never runs is how a passing suite starts lying.
 const SCHEMA_DIR = new URL('../../db/', import.meta.url).pathname;
 const SCHEMA_FILES = (process.env.SCHEMA_SQL ?? '').split(',').filter(Boolean)
   .map((f) => f.trim());
-const PORT = Number(process.env.PORT ?? 3399);
+const PORT = numEnv('PORT', 3399);
 const T = { ops: 'tok-ops', buyer: 'tok-buyer', pm: 'tok-pm', sales: 'tok-sales', acct: 'tok-acct' };
 let pass = 0, fail = 0;
 const check = (n, fn) => {

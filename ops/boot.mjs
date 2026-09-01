@@ -17,7 +17,6 @@
  * stays up.
  */
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -34,13 +33,7 @@ const run = (script, env = {}) => new Promise((resolve, reject) => {
 
 await run('migrate.mjs');
 
-// The image flattens backend/src to /app/src, so `../src` is right in the
-// container and wrong in the repo. Resolving both means this script can be run
-// and debugged locally instead of only ever being exercised by a deploy.
-const serverUrl = existsSync(join(here, '..', 'src', 'server.js'))
-  ? new URL('../src/server.js', import.meta.url)
-  : new URL('../backend/src/server.js', import.meta.url);
-const { server } = await import(serverUrl);
+const { server } = await import('../backend/src/server.js');
 await new Promise((r) => server.listen(PORT, r));
 console.log(`erp listening on ${PORT}`);
 

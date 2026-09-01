@@ -21,17 +21,16 @@
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import pg from 'pg';
 import { server } from '../backend/src/server.js';
 import { pool } from '../backend/src/db.js';
+import { dsn, numEnv } from '../backend/src/config.js';
+const DSN = dsn();
 
 const here = dirname(fileURLToPath(import.meta.url));
-const DSN = process.env.DATABASE_URL
-  ?? `postgres://postgres:${process.env.POSTGRES_PASSWORD ?? 'erp'}`
-   + `@localhost:${process.env.DB_PORT ?? 55432}/erp`;
-const PORT = Number(process.env.PORT ?? 3501);
+
+const PORT = numEnv('PORT', 3501);
 const DEPTHS = (process.env.DEPTHS ?? '100,1000,10000,50000,200000').split(',').map(Number);
-const CONCURRENCY = Number(process.env.CONCURRENCY ?? 40);
+const CONCURRENCY = numEnv('CONCURRENCY', 40);
 
 execFileSync('psql', [DSN, '-q', '-v', 'ON_ERROR_STOP=1', '-f', join(here, '..', 'db', '01-schema.sql')],
   { stdio: 'pipe' });

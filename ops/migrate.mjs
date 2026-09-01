@@ -9,19 +9,16 @@ import { readFile, readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import pg from 'pg';
+import { dsn, sslFor } from '../backend/src/config.js';
+const DSN = dsn();
 
 const here = dirname(fileURLToPath(import.meta.url));
-// No credential fixed in source: DATABASE_URL wins, otherwise the parts come
-// from the same env vars docker-compose.yml uses.
-const dsn = process.env.DATABASE_URL
-  ?? `postgres://postgres:${process.env.POSTGRES_PASSWORD ?? 'erp'}`
-   + `@localhost:${process.env.DB_PORT ?? 55432}/erp`;
-const needsSsl = process.env.PGSSL === 'require' || /sslmode=require/.test(dsn);
+
 const reset = process.env.RESET === '1';
 
 const client = new pg.Client({
-  connectionString: dsn,
-  ...(needsSsl ? { ssl: { rejectUnauthorized: false } } : {}),
+  connectionString: DSN,
+  ...sslFor(DSN),
 });
 
 // The database may still be accepting connections a second or two after the

@@ -21,7 +21,12 @@ async function call(method, path, token, body, expect = 200) {
     headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  const payload = await res.json().catch(() => ({}));
+  // Keep the raw body when it is not JSON. A proxy or platform error page is
+  // exactly the case where the response matters most, and `.catch(() => ({}))`
+  // would replace it with an empty object and report nothing useful.
+  const raw = await res.text();
+  let payload;
+  try { payload = JSON.parse(raw); } catch { payload = { nonJsonBody: raw.slice(0, 400) }; }
   step += 1;
   const ok = res.status === expect;
   console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${String(step).padStart(2)} ${method} ${path} -> ${res.status}`);

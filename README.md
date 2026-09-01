@@ -137,14 +137,14 @@ file rather than a busy port.
 ### Tests
 
 ```bash
-cd backend && npm install && npm test
-#  test/run.mjs         31 acceptance assertions
-#  test/regression.mjs  21 regression assertions (the three Stage 4 bugs)
-#  test/deadlock.mjs     6 concurrency assertions
-#                       ── 58 total, all against a real Postgres
+npm install && npm test
+#  backend/test/run.mjs         31 acceptance assertions
+#  backend/test/regression.mjs  21 regression assertions (the Stage 4 bugs)
+#  backend/test/deadlock.mjs     6 concurrency assertions
+#                               ── 58 total, all against a real Postgres
 
-node ../ops/loadtest.mjs          # section 6 baseline
-FIX=1 node ../ops/loadtest.mjs    # section 6 with the rollup
+npm run loadtest            # section 6 baseline
+FIX=1 npm run loadtest      # section 6 with the rollup
 ```
 
 The suites apply the same `db/*.sql` set the deployed system does. Testing a
@@ -292,14 +292,14 @@ holding concurrency (40), seeding and code constant. Measured, on Postgres 16.15
 
 | history depth | availability p50 | p95 | reserve/s |
 |---|---|---|---|
-| 100 | 0.422 ms | 1.130 ms | 239.5 |
-| 1,000 | 0.471 ms | 1.028 ms | 468.5 |
-| 10,000 | 1.345 ms | 1.546 ms | 319.2 |
-| 50,000 | 5.077 ms | 6.672 ms | 130.4 |
-| 200,000 | **15.202 ms** | 17.389 ms | **55.5** |
+| 100 | 0.545 ms | 0.674 ms | 218.1 |
+| 1,000 | 0.531 ms | 0.844 ms | 418.3 |
+| 10,000 | 1.366 ms | 2.118 ms | 299.9 |
+| 50,000 | 5.229 ms | 6.413 ms | 130.6 |
+| 200,000 | **14.936 ms** | 18.224 ms | **59.1** |
 
 At 200k the planner abandons the index for a `Parallel Seq Scan`. Availability
-reads slow **36x** and throughput falls **4.3x**. (The 100→1,000 row is warm-up,
+reads slow **27x** and throughput falls **3.7x**. (The 100→1,000 row is warm-up,
 not a real improvement — worth saying, because reading it as a win would be
 reading noise as signal.)
 
@@ -311,12 +311,12 @@ Re-running the identical script with `FIX=1`:
 
 | history depth | availability p50 | reserve/s |
 |---|---|---|
-| 100 | 0.368 ms | 223.8 |
-| 10,000 | 0.338 ms | 497.9 |
-| 50,000 | 0.407 ms | 471.5 |
-| 200,000 | **0.381 ms** | **294.5** |
+| 100 | 0.397 ms | 278.4 |
+| 10,000 | 0.293 ms | 525.6 |
+| 50,000 | 0.313 ms | 555.7 |
+| 200,000 | **0.353 ms** | **314.2** |
 
-**Flat.** 40x faster at 200k depth, 5.3x the throughput, and the curve no longer
+**Flat.** 42x faster at 200k depth, 5.3x the throughput, and the curve no longer
 has a slope — depth stops being a variable rather than merely mattering less.
 
 **This is not a mutable balance, which the whole system exists to avoid.**
