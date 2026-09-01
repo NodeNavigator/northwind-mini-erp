@@ -6,11 +6,15 @@ import { readFile } from 'node:fs/promises';
 import { extname, normalize, join } from 'node:path';
 
 const PORT = Number(process.env.PORT ?? 3200);
-// API_ORIGIN is a full origin and wins (docker-compose sets it). Render can only
-// inject a bare hostname via fromService, so API_HOST is accepted as well and
-// assumed https, which is the only scheme Render serves publicly.
+// API_ORIGIN is a full origin and wins. API_HOST is a bare hostname (Render's
+// fromService can only inject one) and is assumed https.
 const API = process.env.API_ORIGIN
   ?? (process.env.API_HOST ? `https://${process.env.API_HOST}` : 'http://127.0.0.1:3100');
+// Logged at boot and named in every proxy failure. An "unreachable" error that
+// does not say what it tried to reach cannot distinguish a misconfigured origin
+// from a genuinely down upstream - which cost an entire deploy cycle to learn.
+console.log(`console proxying /api -> ${API}`
+  + `  (API_ORIGIN=${process.env.API_ORIGIN ?? 'unset'}, API_HOST=${process.env.API_HOST ?? 'unset'})`);
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' };
 
 const server = http.createServer(async (req, res) => {
@@ -46,7 +50,8 @@ const server = http.createServer(async (req, res) => {
     } catch (e) {
       // The API being down is a state the UI must render, not a blank page.
       res.writeHead(502, { 'content-type': 'application/json' });
-      return res.end(JSON.stringify({ error: 'API_UNREACHABLE', detail: String(e.message) }));
+      return res.end(JSON.stringify({
+        error: 'API_UNREACHABLE', detail: String(e.message), upstream: API }));
     }
   }
 

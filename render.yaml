@@ -34,6 +34,13 @@ services:
     envVars:
       - key: PORT
         value: 3200
-      # Only a hostname is injectable here; server.mjs assumes https.
+      # API_HOST via fromService resolved to something the console could not
+      # reach - every proxied call failed with `fetch failed` while the API was
+      # verifiably serving 200s publicly. Pinning the public origin explicitly is
+      # deterministic and reviewable; API_HOST stays as the fallback.
+      # NOTE for a fresh blueprint apply: Render appends a random suffix to a
+      # taken service name, so update this to the new erp-api URL.
+      - key: API_ORIGIN
+        value: https://erp-api-zc8t.onrender.com
       - key: API_HOST
         fromService: { type: web, name: erp-api, property: host }
