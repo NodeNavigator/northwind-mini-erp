@@ -21,7 +21,7 @@ Sign in by picking a role in the console; the six demo tokens are seeded by
 
 ## 1. Architecture
 
-Three processes and a database. The console never talks to the API directly.
+Three processes and a database; the console never talks to the API directly.
 
 ```
 browser ──► console (Node, :3200) ──► api (Node, :3100) ──► postgres :5432
@@ -29,11 +29,10 @@ browser ──► console (Node, :3200) ──► api (Node, :3100) ──► po
             + /api/* proxy              no session state        live here
 ```
 
-**Why the console proxies instead of the API enabling CORS.** The browser only
-ever sees one origin, so there is no preflight, no `Access-Control-Allow-*`
-anywhere in the codebase, and no second origin for a token to leak to. The proxy
-forwards the `Authorization` header untouched and adds no authority of its own —
-it cannot authorise anything the API would refuse.
+**Why the console proxies rather than the API enabling CORS.** The browser sees
+one origin, so there is no preflight, no `Access-Control-Allow-*` anywhere in the
+codebase, and no second origin for a token to leak to. The proxy forwards the
+`Authorization` header untouched and adds no authority of its own.
 
 **Layers.** `server.js` is the composition root: a route table of
 `[method, pattern, capability, handler]`. Authentication and authorisation both
@@ -188,6 +187,13 @@ health-checks the port and kills a container that binds too slowly — demo data
 not worth failing a deploy over, so a seed failure is logged and the service
 stays up. Compose overrides this back to `node src/server.js`, so the sequence
 lives in exactly one place per environment.
+
+**5. A URL returning 200 is not evidence the deployed code is the repo's.** A
+failed build leaves the previous image serving, so the service looks healthy
+while running something else. `GET /` therefore reports `RENDER_GIT_COMMIT`. This
+caught a real case during deployment: the console was redeployed four times to
+the current commit while the API — a separate service — quietly stayed three
+commits behind, and every external check passed throughout.
 
 **Free-tier consequence:** services sleep after inactivity and cold-start in
 30–60s; the free Postgres expires after 30 days.
