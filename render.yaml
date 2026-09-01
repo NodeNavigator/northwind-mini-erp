@@ -1,0 +1,39 @@
+# Render Blueprint: the deployment as a reviewable file, not dashboard fields
+# nobody can diff — the same argument as keeping compose in the repo.
+databases:
+  - name: erp-db
+    databaseName: erp
+    user: erp
+    plan: free
+
+services:
+  - type: web
+    name: erp-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: .
+    plan: free
+    # /health, not /: readiness must fail when Postgres is unreachable.
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase: { name: erp-db, property: connectionString }
+      - key: PGSSL          # Render's managed Postgres requires TLS
+        value: require
+      - key: PORT
+        value: 3100
+      - key: PG_POOL        # free tier caps connections well below the local 20
+        value: 5
+
+  - type: web
+    name: erp-console
+    runtime: docker
+    dockerfilePath: ./frontend/Dockerfile
+    dockerContext: .
+    plan: free
+    envVars:
+      - key: PORT
+        value: 3200
+      # Only a hostname is injectable here; server.mjs assumes https.
+      - key: API_HOST
+        fromService: { type: web, name: erp-api, property: host }

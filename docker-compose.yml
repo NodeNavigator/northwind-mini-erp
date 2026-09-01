@@ -1,0 +1,81 @@
+# One command from a clean checkout:  docker compose up
+#
+# Four things must happen in sequence and only two are long-running.
+# `depends_on: service_healthy` makes that deterministic; without it the API
+# races Postgres and the seed races the API, which fails intermittently and
+# reads as an application bug rather than a compose bug.
+#
+#   db      -> healthy (pg_isready)
+#   migrate -> runs once, exits 0        (applies schema only if absent)
+#   api     -> healthy (/health, which checks Postgres)
+#   seed    -> runs once, exits 0        (drives the real API; asserts drift = 0)
+#   console -> serves the UI and proxies /api to the API
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-erp}
+      POSTGRES_DB: erp
+    ports: ['${DB_PORT:-55432}:5432']
+    volumes: ['pgdata:/var/lib/postgresql/data']
+    healthcheck:
+      # -d erp, not the default: pg_isready succeeds against the bootstrap
+      # database moments before the real one is ready to accept connections.
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d erp']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  migrate:
+    build: { context: ., dockerfile: backend/Dockerfile }
+    command: ['node', 'ops/migrate.mjs']
+    environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-erp}@db:5432/erp
+      RESET: ${RESET:-0}
+    depends_on:
+      db: { condition: service_healthy }
+    restart: 'no'
+
+  api:
+    build: { context: ., dockerfile: backend/Dockerfile }
+    # Overrides the image default (ops/boot.mjs) deliberately. boot.mjs sequences
+    # migrate -> listen -> seed where there is no orchestrator; here compose IS
+    # one, and doing it in both places would be two mechanisms for one job.
+    command: ['node', 'src/server.js']
+    environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-erp}@db:5432/erp
+      PORT: 3100
+      PG_POOL: ${PG_POOL:-20}
+    ports: ['${API_PORT:-3100}:3100']
+    depends_on:
+      db: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:3100/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+  seed:
+    build: { context: ., dockerfile: backend/Dockerfile }
+    command: ['node', 'ops/seed.mjs']
+    environment:
+      API_BASE: http://api:3100
+    depends_on:
+      api: { condition: service_healthy }
+    restart: 'no'
+
+  console:
+    build: { context: ., dockerfile: frontend/Dockerfile }
+    environment:
+      PORT: 3200
+      # The browser only ever talks to the console origin; the console proxies
+      # to the API server-side. No CORS config exists anywhere in this stack
+      # because no cross-origin request is ever made.
+      API_ORIGIN: http://api:3100
+    ports: ['${CONSOLE_PORT:-3200}:3200']
+    depends_on:
+      api: { condition: service_healthy }
+
+volumes:
+  pgdata:

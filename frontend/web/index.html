@@ -1,0 +1,43 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Northwind Operations Console</title>
+<style>
+  :root { color-scheme: light; --line:#d8d4cf; --bad:#a11; --ok:#186a3b; }
+  body { margin:0; font:14px/1.45 system-ui, sans-serif; color:#14110f; background:#faf9f7; }
+  header { display:flex; gap:16px; align-items:center; padding:10px 16px; border-bottom:1px solid var(--line); background:#fff; }
+  nav { display:flex; gap:4px; }
+  nav button { border:1px solid var(--line); background:#fff; padding:6px 12px; cursor:pointer; border-radius:4px; }
+  nav button[aria-current="true"] { background:#14110f; color:#fff; }
+  main { padding:16px; max-width:1000px; }
+  table { border-collapse:collapse; width:100%; margin:8px 0; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); }
+  th { font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+  .muted { color:#6b6560; }
+  .err { color:var(--bad); border:1px solid var(--bad); background:#fff5f5; padding:8px 10px; border-radius:4px; }
+  .ok { color:var(--ok); }
+  .pill { display:inline-block; padding:2px 8px; border-radius:10px; font-size:12px; border:1px solid var(--line); }
+  .pill.yes { background:#e8f5ec; color:var(--ok); border-color:var(--ok); }
+  .pill.no  { background:#fff5f5; color:var(--bad); border-color:var(--bad); }
+  form { display:flex; gap:8px; align-items:end; flex-wrap:wrap; margin:8px 0; }
+  label { display:flex; flex-direction:column; gap:2px; font-size:12px; }
+  input, select { padding:5px 6px; border:1px solid var(--line); border-radius:3px; font:inherit; }
+  button.go { background:#14110f; color:#fff; border:none; padding:7px 14px; border-radius:4px; cursor:pointer; }
+  button.go:disabled { opacity:.5; cursor:not-allowed; }
+</style>
+<header>
+  <strong>Northwind Ops</strong>
+  <label>role
+    <select id="role">
+      <option value="tok-ops">Warehouse Operator</option>
+      <option value="tok-buyer">Buyer</option>
+      <option value="tok-pm">Procurement Manager</option>
+      <option value="tok-sales">Sales Agent</option>
+      <option value="tok-ship">Fulfilment</option>
+      <option value="tok-acct">Accountant</option>
+    </select>
+  </label>
+  <nav id="nav"></nav>
+  <span id="recon" class="muted">reconciliation …</span>
+</header>
+<main id="view">loading…</main>
+<script type="module" src="/app.js"></script>
