@@ -4,8 +4,15 @@ Procurement, inventory, sales and a double-entry ledger, built across four prior
 stages and deployed here as one system. Roughly 2,400 lines of Node and SQL, no
 framework, no ORM.
 
-- **Console** — `FRONTEND_URL`
-- **API** — `BACKEND_URL` (`/` service info, `/health` readiness)
+- **Console** — https://erp-console.onrender.com
+- **API** — https://erp-api-zc8t.onrender.com (`/` service info, `/health` readiness)
+
+Both on Render's free tier, so the **first request after idle takes 30–60s** to
+wake. Verified live 2026-09-01: `/health` returns `{"status":"ok","db":"up"}`,
+the console proxies cross-service to the API, reconciliation reports
+`drift 0.00000000` and `stock_balance_drift_rows 0`, and authorisation is
+enforced by the API (no token 401, warehouse operator on `/ledger/entries` 403,
+accountant 200, sales agent on `/stock/transfers` 403).
 
 Sign in by picking a role in the console; the six demo tokens are seeded by
 `ops/seed.mjs` and listed under [Demo roles](#demo-roles).
@@ -109,29 +116,23 @@ design, and that flag tears the whole stack down when they do.
 
 ### Ports and configuration
 
-Every port is overridable because fixed host ports collide — `55432` was already
-taken on the machine this was built on, and the failure looks like a broken
-compose file rather than a busy port.
+Every port is overridable: fixed host ports collide, and `55432` was already
+taken on the machine this was built on — a failure that reads as a broken compose
+file rather than a busy port.
 
 | Variable | Default | Notes |
 |---|---|---|
-| `CONSOLE_PORT` | 3200 | the UI |
-| `API_PORT` | 3100 | |
+| `CONSOLE_PORT` / `API_PORT` | 3200 / 3100 | |
 | `DB_PORT` | 55432 | host-side only; nothing in the stack needs it |
-| `POSTGRES_PASSWORD` | `erp` | local dev default; no credential is hard-coded in source |
+| `POSTGRES_PASSWORD` | `erp` | local default; no credential is fixed in source |
 | `PG_POOL` | 20 | lowered to 5 on Render, whose free tier caps connections |
-| `RESET` | 0 | `RESET=1 docker compose up migrate` rebuilds the schema, destroying data |
+| `RESET` | 0 | `RESET=1` rebuilds the schema, destroying data |
 
 ### Demo roles
 
-| Token | Role | Can |
-|---|---|---|
-| `tok-ops` | Warehouse operator | receive stock, transfer stock |
-| `tok-buyer` | Buyer | raise POs |
-| `tok-pm` | Procurement manager | approve POs |
-| `tok-sales` | Sales agent | raise and reserve sales orders |
-| `tok-ship` | Fulfilment | ship reserved orders |
-| `tok-acct` | Accountant | read and post to the ledger |
+`tok-ops` warehouse operator (receive, transfer) · `tok-buyer` raise POs ·
+`tok-pm` approve POs · `tok-sales` raise/reserve sales orders · `tok-ship` ship ·
+`tok-acct` read and post to the ledger.
 
 ### Tests
 
@@ -168,13 +169,12 @@ start" should not be answered no because a dependency is slow. `/health` is
 Postgres must not be routed traffic. Collapsing the two gets a healthy service
 restarted, or a dead one kept in rotation.
 
-**2. `01-schema.sql` opens with `DROP SCHEMA IF EXISTS erp CASCADE`.** Correct
-for a test harness that wants a known-empty database; catastrophic for a hosted
-service, where the container restarts on every deploy, every OOM and every
-platform-initiated move. `ops/migrate.mjs` applies the schema **only when it is
-absent**. Rebuilding is an explicit, loud act (`RESET=1`), never a side effect of
-starting the process. Verified by restarting the stack and confirming the ledger
-value was unchanged and `migrate` logged `already present, leaving it alone`.
+**2. `01-schema.sql` opens with `DROP SCHEMA IF EXISTS erp CASCADE`.** Right for
+a test harness wanting a known-empty database; catastrophic for a hosted service
+that restarts on every deploy, every OOM and every platform-initiated move.
+`ops/migrate.mjs` applies the schema **only when absent** — rebuilding is an
+explicit, loud act (`RESET=1`). Verified by restarting the stack: `migrate`
+logged `already present, leaving it alone` and the ledger value was unchanged.
 
 **3. Managed Postgres requires TLS** with a certificate the container has no CA
 for. `ssl` is relaxed only when `PGSSL=require` or the DSN says
@@ -189,9 +189,8 @@ not worth failing a deploy over, so a seed failure is logged and the service
 stays up. Compose overrides this back to `node src/server.js`, so the sequence
 lives in exactly one place per environment.
 
-**Free-tier consequence, stated plainly:** free Render services sleep after
-inactivity and cold-start in roughly 30–60 seconds, and the free Postgres expires
-after 30 days. The first request to a sleeping console will be slow.
+**Free-tier consequence:** services sleep after inactivity and cold-start in
+30–60s; the free Postgres expires after 30 days.
 
 ---
 
@@ -243,7 +242,7 @@ receipt debits inventory and credits GRNI; a fulfilment moves value to COGS; a
 price difference goes to PPV. Because both writes are in one transaction, there
 is no window in which stock exists that the ledger has not accounted for.
 
-Three things keep it true rather than merely intended:
+Three things keep it true rather than intended:
 
 1. **A deferred constraint trigger** recomputes debits and credits per journal at
    commit. Legs can be inserted in any order; an unbalanced journal cannot
