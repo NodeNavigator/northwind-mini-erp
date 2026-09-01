@@ -77,7 +77,15 @@ export const server = http.createServer(async (req, res) => {
     // and must not be routed traffic. Collapsing the two is how a degraded
     // service either gets restarted for no reason or kept in rotation when dead.
     if (url.pathname === '/') {
-      return send(200, { service: 'northwind-mini-erp', stage: 5, routes: ROUTES.length });
+      // The commit is reported because a platform that fails a build keeps
+      // serving the previous image: without this, a green URL is not evidence
+      // that the deployed code is the code in the repository.
+      return send(200, {
+        service: 'northwind-mini-erp',
+        stage: 5,
+        routes: ROUTES.length,
+        commit: (process.env.RENDER_GIT_COMMIT ?? 'local').slice(0, 7),
+      });
     }
     if (url.pathname === '/health') {
       try {
