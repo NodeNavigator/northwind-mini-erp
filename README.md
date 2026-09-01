@@ -65,10 +65,10 @@ and its journal commit together or not at all. An asynchronous outbox is what yo
 need across services and buys nothing where both writes are in one database.
 
 **Stage 3 — the console renders server state rather than keeping a second model.**
-No client-side cache of stock; every mutation re-fetches. Slower, much harder to
-get wrong. Role-based nav hides views the API would refuse anyway — hiding is a
-courtesy, the API is the boundary, and `frontend/test/ui.test.mjs` asserts a
-hidden route still returns 403.
+No client-side cache; every mutation re-fetches. Slower, much harder to get wrong.
+Role-based nav hides views the API would refuse anyway — hiding is a courtesy, the
+API is the boundary, and `frontend/test/ui.test.mjs` proves a hidden route still
+returns 403.
 
 **Stage 4 — transfers extend the movement ledger rather than adding a mechanism.**
 A header plus two linked movements, `-qty` at source and `+qty` at destination at
@@ -268,11 +268,10 @@ Three things keep it true rather than intended:
  "total_debits":"3750.0000","total_credits":"3750.0000","stock_balance_drift_rows":"0"}
 ```
 
-`ops/seed.mjs` creates demo data **through the HTTP API rather than by inserting
-rows**, for this reason specifically: inserting movements directly would produce
-inventory the ledger has never heard of, so every fresh deploy would open onto a
-system reporting non-zero drift. A seed that uses the endpoints cannot
-desynchronise them, and its last assertion is that drift is still zero.
+`ops/seed.mjs` creates demo data **through the HTTP API, never by inserting
+rows**: direct inserts would produce inventory the ledger never saw, so every
+fresh deploy would open onto a system reporting non-zero drift. A seed that uses
+the endpoints cannot desynchronise them, and its last assertion is drift = 0.
 
 ---
 
@@ -366,7 +365,7 @@ caller had to know the rule existed. There is one implementation now.
 
 What remains:
 
-- **`ref_type`/`ref_id` is a loose polymorphic link** with no foreign key. A
+- **`ref_type`/`ref_id` is a loose polymorphic link** with no foreign key: a
   typo'd `ref_type` is not caught, and the database cannot enforce that both legs
   of a transfer exist. Fixing it means a table per reference kind or an enum plus
   per-kind FKs — a migration with a backfill, not a patch.
@@ -376,7 +375,7 @@ What remains:
   covered.
 - **The rollup trades write parallelism for read cost** — two receipts into one
   position now serialise on the balance row. Invisible at the volumes measured,
-  real in principle, and stated in section 6 rather than sold as a free win.
+  real in principle, and stated rather than sold as a free win.
 - **Deliberate scope cuts:** static seeded tokens rather than sessions (no
   expiry, rotation or revocation); single currency; standard costing; no period
   close; no partial-shipment invoicing.
